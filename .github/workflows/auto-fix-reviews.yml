@@ -1,0 +1,55 @@
+name: AI Auto-Fix Reviews
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-fix:
+    if: github.event.review.state == 'changes_requested' || contains(github.event.review.body, 'AI fix')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install google-generativeai
+
+      - name: Architect Phase (Analyze & Plan)
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/ai/architect.py --pr ${{ github.event.pull_request.number }} --repo ${{ github.repository }}
+
+      - name: Laborer Phase (Execute & Verify)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f "FIX_PLAN.md" ]; then
+            python scripts/ai/laborer.py
+          else
+            echo "No valid fixes identified by Architect."
+          fi
+
+      - name: Push Fixes
+        run: |
+          git config --global user.name "AI Architect"
+          git config --global user.email "ai-architect@users.noreply.github.com"
+          git add -A
+          if ! git diff --staged --quiet; then
+            git commit -m "Address AI Architect Review Feedback"
+            git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          fi
