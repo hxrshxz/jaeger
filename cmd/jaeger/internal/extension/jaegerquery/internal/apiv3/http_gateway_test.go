@@ -220,6 +220,41 @@ func TestHTTPGatewayFindTracesWithAttributes(t *testing.T) {
 	gw.reader.AssertExpectations(t)
 }
 
+func TestHTTPGatewayFindTracesWithLimit(t *testing.T) {
+	time1 := time.Now().UTC().Truncate(time.Nanosecond)
+	time2 := time1.Add(-time.Second).UTC().Truncate(time.Nanosecond)
+
+	q := url.Values{}
+	q.Set(paramServiceName, "test-service")
+	q.Set(paramTimeMin, time1.Format(time.RFC3339Nano))
+	q.Set(paramTimeMax, time2.Format(time.RFC3339Nano))
+	q.Set(paramLimit, "50")
+
+	expectedParams := tracestore.TraceQueryParams{
+		ServiceName:  "test-service",
+		Attributes:   pcommon.NewMap(),
+		StartTimeMin: time1,
+		StartTimeMax: time2,
+		SearchDepth:  50,
+	}
+
+	gw := setupHTTPGatewayNoServer(t, "")
+	gw.reader.
+		On("FindTraces", matchContext, expectedParams).
+		Return(iter.Seq2[[]ptrace.Traces, error](func(yield func([]ptrace.Traces, error) bool) {
+			yield([]ptrace.Traces{makeTestTrace()}, nil)
+		})).Once()
+
+	r, err := http.NewRequest(http.MethodGet, "/api/v3/traces?"+q.Encode(), http.NoBody)
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	gw.router.ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	gw.reader.AssertExpectations(t)
+}
+
+
 func TestHTTPGatewayGetTraceMalformedInputErrors(t *testing.T) {
 	testCases := []struct {
 		name          string
@@ -373,6 +408,15 @@ func TestHTTPGatewayFindTracesErrors(t *testing.T) {
 				paramAttributes: "not-valid-json",
 			},
 			expErr: paramAttributes,
+		},
+		{
+			name: "bad limit",
+			params: map[string]string{
+				paramTimeMin: goodTime,
+				paramTimeMax: goodTime,
+				paramLimit:   "not-an-int",
+			},
+			expErr: paramLimit,
 		},
 	}
 	for _, tc := range testCases {
