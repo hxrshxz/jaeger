@@ -1,6 +1,5 @@
 import os
 import subprocess
-import google.generativeai as genai
 
 def main():
     # Get staged changes
@@ -15,36 +14,28 @@ def main():
         return
 
     prompt = f"""
-    # ROLE: Senior Architect / Mentor
-    # TASK: Validate code reviews and generate a Technical Blueprint for the Laborer.
-
-    ## INPUTS
-    - PR Context: {pr_title}
-    - Review Comments: {"/n".join(comments)}
-
-    ## OBJECTIVE
-    1. VALIDATE: Reject hallucinations or suggestions that break project patterns.
-    2. BLUEPRINT: For accepted suggestions, provide exact, step-by-step instructions.
-
-    ## OUTPUT FORMAT (MANDATORY)
-    #### [FILE_PATH]
-    - Action: [REPLACE/ADD/DELETE]
-    - Logic: "Detailed code snippet or instruction"
-    - Verification: "Instruction on how to test this change"
+    You are a Senior Reviewer. Analyze the following staged git diff for GSoC/LFX quality standards.
+    Identify any bugs, anti-patterns, or missing tests.
+    
+    DIFF:
+    {diff}
+    
+    Output a list of critical concerns or 'LGTM' if it's perfect.
     """
 
-    print("Gemini CLI is architecting the plan...")
+    print("Gemini CLI is reviewing your local changes...")
     try:
+        # Using gemini CLI for authentication-free processing
         result = subprocess.run(["gemini", prompt], capture_output=True, text=True)
-        blueprint = result.stdout
+        review_output = result.stdout
     except Exception as e:
         print(f"Error running gemini CLI: {e}")
         return
-
-    with open("FIX_PLAN.md", "w") as f:
-        f.write(blueprint)
     
-    print("FIX_PLAN.md generated.")
+    with open("local_review.md", "w") as f:
+        f.write(review_output)
+    
+    print("Local review generated in local_review.md")
 
 if __name__ == "__main__":
     main()

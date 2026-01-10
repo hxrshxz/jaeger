@@ -1,14 +1,11 @@
 import os
 import re
-import google.generativeai as genai
+import subprocess
 
 def main():
     if not os.path.exists("FIX_PLAN.md"):
         print("No plan to execute.")
         return
-
-    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-    model = genai.GenerativeModel('gemini-1.5-pro')
 
     with open("FIX_PLAN.md", "r") as f:
         plan = f.read()
@@ -49,13 +46,19 @@ def main():
         3. Output ONLY the new file content. No markdown wrappers unless they are part of the code.
         """
 
-        response = model.generate_content(prompt)
-        new_content = response.text.strip()
+        try:
+            print(f"Gemini CLI is fixing: {file_path}")
+            # Use gemini CLI without -p strictly
+            result = subprocess.run(["gemini", prompt], capture_output=True, text=True)
+            new_content = result.stdout.strip()
+        except Exception as e:
+            print(f"Error running gemini CLI for {file_path}: {e}")
+            continue
         
-        # Strip potential markdown code blocks if the model included them
+        # Strip potential markdown code blocks
         if new_content.startswith("```"):
-            new_content = re.sub(r'^```[a-z]*\n', '', new_content)
-            new_content = re.sub(r'\n```$', '', new_content)
+            new_content = re.sub(r'^```[a-z]*\n', '', new_content, flags=re.MULTILINE)
+            new_content = re.sub(r'\n```$', '', new_content, flags=re.MULTILINE)
 
         with open(file_path, "w") as f:
             f.write(new_content)

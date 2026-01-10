@@ -1,6 +1,6 @@
 import os
 import argparse
-import google.generativeai as genai
+import subprocess
 from github import Github
 
 def main():
@@ -9,29 +9,28 @@ def main():
     parser.add_argument("--repo", type=str, required=True)
     args = parser.parse_args()
 
-    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-    model = genai.GenerativeModel('gemini-1.5-pro')
-
     pr_title = "Local Development"
-    if args.pr != 0:
-        gh = Github(os.environ["GITHUB_TOKEN"])
-        repo = gh.get_repo(args.repo)
-        pr = repo.get_pull(args.pr)
-        pr_title = pr.title
-    
-    # Get reviews and comments
     comments = []
-    
+
+    # Get remote reviews from GitHub if PR is provided
+    if args.pr != 0:
+        try:
+            gh = Github(os.environ["GITHUB_TOKEN"])
+            repo = gh.get_repo(args.repo)
+            pr = repo.get_pull(args.pr)
+            pr_title = pr.title
+            
+            reviews = pr.get_reviews()
+            for review in reviews:
+                if review.body:
+                     comments.append(f"GitHub Review by {review.user.login}: {review.body}")
+        except Exception as e:
+            print(f"Warning: Could not fetch GitHub reviews: {e}")
+
     # Try local review first
     if os.path.exists("local_review.md"):
         with open("local_review.md", "r") as f:
             comments.append(f"Local AI Review: {f.read()}")
-    
-    # Then get remote reviews from GitHub
-    reviews = pr.get_reviews()
-    for review in reviews:
-        if review.body:
-             comments.append(f"GitHub Review by {review.user.login}: {review.body}")
         
     if not comments:
         print("No comments to process.")
@@ -42,8 +41,8 @@ def main():
     # TASK: Validate code reviews and generate a Technical Blueprint for the Laborer.
 
     ## INPUTS
-    - PR Context: {pr.title}
-    - Review Comments: {"/n".join(comments)}
+    - PR Context: {pr_title}
+    - Review Comments: {"\n".join(comments)}
 
     ## OBJECTIVE
     1. VALIDATE: Reject hallucinations or suggestions that break project patterns.
@@ -56,9 +55,16 @@ def main():
     - Verification: "Instruction on how to test this change"
     """
 
-    response = model.generate_content(prompt)
+    print("Gemini CLI is architecting the plan...")
+    try:
+        result = subprocess.run(["gemini", prompt], capture_output=True, text=True)
+        blueprint = result.stdout
+    except Exception as e:
+        print(f"Error running gemini CLI: {e}")
+        return
+
     with open("FIX_PLAN.md", "w") as f:
-        f.write(response.text)
+        f.write(blueprint)
     
     print("FIX_PLAN.md generated.")
 
