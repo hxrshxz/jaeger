@@ -51,6 +51,7 @@ def main():
     ## INPUTS:
     - Context: {pr_context}
     - Review Comments: {"\n".join(comments)}
+    - IMPORTANT: Always use FULL paths from the repository root (e.g., cmd/jaeger/internal/extension/jaegerquery/internal/apiv3/http_gateway.go).
 
     ---
 

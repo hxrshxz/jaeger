@@ -18,7 +18,7 @@ def main():
     # GOAL: Identify critical bugs or project violations with MINIMAL footprint.
 
     ## PRINCIPLES:
-    - Only flag issues that are BUGS, SECURITY RISKS, or BLATANT project style violations.
+    - Only flag issues that are BUGS, SECURITY RISKS, or project style violations.
     - Do NOT suggest refactors.
     - Do NOT suggest formatting changes.
     - Do NOT suggest adding comments/docs unless the surrounding code already has them.

@@ -2,6 +2,16 @@ import os
 import re
 import subprocess
 
+def make_whitespace_insensitive(text):
+    # Escape special regex characters
+    text = re.escape(text)
+    # Replace escaped spaces/tabs with a matcher for any amount of horizontal whitespace
+    # we use \s+ for actual newlines or spaces to be safe
+    # But often we just want to ignore indentation differences
+    # Let's replace ' ' with '[ \t]*' and keep newlines fixed for precision
+    text = text.replace(r'\ ', r'[ \t]*')
+    return text
+
 def main():
     if not os.path.exists("FIX_PLAN.md"):
         print("No plan to execute.")
@@ -38,17 +48,32 @@ def main():
             continue
 
         for search, replace in blocks:
-            # Strip trailing/leading newlines that might cause mismatch
-            search_stripped = search.strip('\n')
-            
-            # Look for exact match first
+            # Try exact match first
             if search in content:
-                print(f"  Applying Search/Replace block...")
+                print(f"  Applying Search/Replace block (exact)...")
                 content = content.replace(search, replace)
-            elif search_stripped in content:
-                 print(f"  Applying Search/Replace block (fuzzy newline)...")
-                 content = content.replace(search_stripped, replace.strip('\n'))
-            else:
+                continue
+            
+            # Try whitespace-insensitive match (per line)
+            search_lines = search.split('\n')
+            content_lines = content.split('\n')
+            
+            found = False
+            for i in range(len(content_lines) - len(search_lines) + 1):
+                match = True
+                for j in range(len(search_lines)):
+                    if search_lines[j].strip() != content_lines[i+j].strip():
+                        match = False
+                        break
+                if match:
+                    print(f"  Applying Search/Replace block (whitespace-insensitive)...")
+                    # Replace the lines while preserving content around them
+                    content_lines[i:i+len(search_lines)] = replace.split('\n')
+                    content = '\n'.join(content_lines)
+                    found = True
+                    break
+            
+            if not found:
                 print(f"  ⚠️ Could not find search block in {file_path}. Skipping.")
                 print(f"  Looking for: {search[:100]}...")
 
