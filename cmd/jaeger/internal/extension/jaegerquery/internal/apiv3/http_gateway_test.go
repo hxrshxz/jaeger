@@ -254,6 +254,96 @@ func TestHTTPGatewayFindTracesWithLimit(t *testing.T) {
 	gw.reader.AssertExpectations(t)
 }
 
+func TestHTTPGatewayFindTracesLimitAndNumTraces(t *testing.T) {
+	time1 := time.Now().UTC().Truncate(time.Nanosecond)
+	time2 := time1.Add(-time.Second).UTC().Truncate(time.Nanosecond)
+
+	baseQuery := url.Values{}
+	baseQuery.Set(paramServiceName, "test-service")
+	baseQuery.Set(paramTimeMin, time1.Format(time.RFC3339Nano))
+	baseQuery.Set(paramTimeMax, time2.Format(time.RFC3339Nano))
+
+	baseExpectedParams := func() tracestore.TraceQueryParams {
+		return tracestore.TraceQueryParams{
+			ServiceName:  "test-service",
+			Attributes:   pcommon.NewMap(),
+			StartTimeMin: time1,
+			StartTimeMax: time2,
+		}
+	}
+
+	testCases := []struct {
+		name           string
+		query          url.Values
+		expectedParams tracestore.TraceQueryParams
+		expectedStatus int
+		expectedError  string
+	}{
+		{
+			name: "should use num_traces when limit is not present",
+			query: func() url.Values {
+				q := baseQuery
+				q.Set(paramNumTraces, "75")
+				return q
+			}(),
+			expectedParams: func() tracestore.TraceQueryParams {
+				p := baseExpectedParams()
+				p.SearchDepth = 75
+				return p
+			}(),
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "should use limit when both limit and num_traces are present",
+			query: func() url.Values {
+				q := baseQuery
+				q.Set(paramLimit, "50")
+				q.Set(paramNumTraces, "75")
+				return q
+			}(),
+			expectedParams: func() tracestore.TraceQueryParams {
+				p := baseExpectedParams()
+				p.SearchDepth = 50
+				return p
+			}(),
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "should return error for invalid num_traces",
+			query: func() url.Values {
+				q := baseQuery
+				q.Set(paramNumTraces, "invalid")
+				return q
+			}(),
+			expectedStatus: http.StatusBadRequest,
+			expectedError:  "malformed parameter query.num_traces",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			gw := setupHTTPGatewayNoServer(t, "")
+			if tc.expectedStatus == http.StatusOK {
+				gw.reader.
+					On("FindTraces", matchContext, tc.expectedParams).
+					Return(iter.Seq2[[]ptrace.Traces, error](func(yield func([]ptrace.Traces, error) bool) {
+						yield([]ptrace.Traces{makeTestTrace()}, nil)
+					})).Once()
+			}
+
+			r, err := http.NewRequest(http.MethodGet, "/api/v3/traces?"+tc.query.Encode(), http.NoBody)
+			require.NoError(t, err)
+			w := httptest.NewRecorder()
+			gw.router.ServeHTTP(w, r)
+
+			assert.Equal(t, tc.expectedStatus, w.Code)
+			if tc.expectedError != "" {
+				assert.Contains(t, w.Body.String(), tc.expectedError)
+			}
+			gw.reader.AssertExpectations(t)
+		})
+	}
+}
 
 func TestHTTPGatewayGetTraceMalformedInputErrors(t *testing.T) {
 	testCases := []struct {
@@ -347,7 +437,7 @@ func TestHTTPGatewayFindTracesErrors(t *testing.T) {
 	goodDuration := "1s"
 	timeRangeErr := fmt.Sprintf("%s and %s are required", paramTimeMin, paramTimeMax)
 	testCases := []struct {
-		name   string
+		name string
 		params map[string]string
 		expErr string
 	}{
@@ -403,8 +493,8 @@ func TestHTTPGatewayFindTracesErrors(t *testing.T) {
 		{
 			name: "bad attributes",
 			params: map[string]string{
-				paramTimeMin:    goodTime,
-				paramTimeMax:    goodTime,
+				paramTimeMin: goodTime,
+				paramTimeMax: goodTime,
 				paramAttributes: "not-valid-json",
 			},
 			expErr: paramAttributes,

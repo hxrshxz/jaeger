@@ -237,14 +237,6 @@ func (h *HTTPGateway) parseFindTracesQuery(q url.Values, w http.ResponseWriter) 
 	queryParams.StartTimeMin = timeMinParsed
 	queryParams.StartTimeMax = timeMaxParsed
 
-	if n := q.Get(paramNumTraces); n != "" {
-		numTraces, err := strconv.Atoi(n)
-		if h.tryParamError(w, err, paramNumTraces) {
-			return nil, true
-		}
-		queryParams.SearchDepth = numTraces
-	}
-
 	if d := q.Get(paramDurationMin); d != "" {
 		dur, err := time.ParseDuration(d)
 		if h.tryParamError(w, err, paramDurationMin) {
@@ -279,13 +271,27 @@ func (h *HTTPGateway) parseFindTracesQuery(q url.Values, w http.ResponseWriter) 
 			queryParams.Attributes.PutStr(k, v)
 		}
 	}
-	if l := q.Get(paramLimit); l != "" {
-		limit, err := strconv.Atoi(l)
+
+	// The 'limit' parameter is preferred over the deprecated 'num_traces'.
+	if limitStr := q.Get(paramLimit); limitStr != "" {
+		limit, err := strconv.Atoi(limitStr)
 		if h.tryParamError(w, err, paramLimit) {
 			return nil, true
 		}
 		queryParams.SearchDepth = limit
 	}
+
+	// Fallback to 'num_traces' if 'limit' was not provided or parsed to 0.
+	if queryParams.SearchDepth == 0 {
+		if numTracesStr := q.Get(paramNumTraces); numTracesStr != "" {
+			if numTraces, err := strconv.Atoi(numTracesStr); err == nil {
+				queryParams.SearchDepth = numTraces
+			} else if h.tryParamError(w, err, paramNumTraces) {
+				return nil, true
+			}
+		}
+	}
+
 	return queryParams, false
 }
 

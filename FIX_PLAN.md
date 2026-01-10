@@ -1,35 +1,148 @@
-#### [FILE_PATH]
-cmd/jaeger/internal/extension/jaegerquery/internal/apiv3/http_gateway.go
 
+#### /home/hxrshxz/Desktop/Projects/jaeger/cmd/jaeger/internal/extension/jaegerquery/internal/apiv3/http_gateway.go
 - Action: REPLACE
-- Logic: "This file has been corrupted and overwritten. It must be restored to its previous state from the git history. Execute the following command: `git checkout HEAD -- cmd/jaeger/internal/extension/jaegerquery/internal/apiv3/http_gateway.go`"
-- Verification: "Run `git status`. The file `cmd/jaeger/internal/extension/jaegerquery/internal/apiv3/http_gateway.go` should no longer be listed as modified."
-#### [FILE_PATH]
-scripts/ai/architect.py
+- Logic: "Replace the fallback logic for the `limit` and `num_traces` parameters. The current implementation incorrectly uses `num_traces` when `limit=0` is explicitly provided. The fix involves checking for the *presence* of the `limit` parameter in the query string, rather than checking its parsed value."
+  ```go
+  	// The 'limit' parameter is preferred over the deprecated 'num_traces'.
+  	_, limitIsPresent := q[paramLimit]
+  	if limitIsPresent {
+  		limitStr := q.Get(paramLimit)
+  		limit, err := strconv.Atoi(limitStr)
+  		if h.tryParamError(w, err, paramLimit) {
+  			return nil, true
+  		}
+  		queryParams.SearchDepth = limit
+  	} else {
+  		// Fallback to 'num_traces' if 'limit' was not provided.
+  		if numTracesStr := q.Get(paramNumTraces); numTracesStr != "" {
+  			if numTraces, err := strconv.Atoi(numTracesStr); err == nil {
+  				queryParams.SearchDepth = numTraces
+  			} else if h.tryParamError(w, err, paramNumTraces) {
+  				return nil, true
+  			}
+  		}
+  	}
 
+  	return queryParams, false
+  ```
+- Verification: "The existing tests, once fixed, will validate this change. Specifically, the new test case for `limit=0` will ensure the fallback to `num_traces` does not occur."
+
+#### /home/hxrshxz/Desktop/Projects/jaeger/cmd/jaeger/internal/extension/jaegerquery/internal/apiv3/http_gateway_test.go
 - Action: REPLACE
-- Logic: "This file has been corrupted and overwritten. It must be restored to its previous state from the git history. Execute the following command: `git checkout HEAD -- scripts/ai/architect.py`"
-- Verification: "Run `git status`. The file `scripts/ai/architect.py` should no longer be listed as modified."
-#### [FILE_PATH]
-FIX_PLAN.md
+- Logic: "Refactor the `TestHTTPGatewayFindTracesLimitAndNumTraces` test to prevent state pollution between table-driven test cases. The `baseQuery` map was being reused, causing modifications in one test to affect others. The fix is to create a new, clean `url.Values` map for each test case. Additionally, a new test case is added to validate the behavior of the `limit=0` edge case."
+  ```go
+  func TestHTTPGatewayFindTracesLimitAndNumTraces(t *testing.T) {
+  	time1 := time.Now().UTC().Truncate(time.Nanosecond)
+  	time2 := time1.Add(-time.Second).UTC().Truncate(time.Nanosecond)
 
+  	baseQuery := func() url.Values {
+  		q := url.Values{}
+  		q.Set(paramServiceName, "test-service")
+  		q.Set(paramTimeMin, time1.Format(time.RFC3339Nano))
+  		q.Set(paramTimeMax, time2.Format(time.RFC3339Nano))
+  		return q
+  	}
+
+  	baseExpectedParams := func() tracestore.TraceQueryParams {
+  		return tracestore.TraceQueryParams{
+  			ServiceName:  "test-service",
+  			Attributes:   pcommon.NewMap(),
+  			StartTimeMin: time1,
+  			StartTimeMax: time2,
+  		}
+  	}
+
+  	testCases := []struct {
+  		name           string
+  		query          url.Values
+  		expectedParams tracestore.TraceQueryParams
+  		expectedStatus int
+  		expectedError  string
+  	}{
+  		{
+  			name: "should use num_traces when limit is not present",
+  			query: func() url.Values {
+  				q := baseQuery()
+  				q.Set(paramNumTraces, "75")
+  				return q
+  			}(),
+  			expectedParams: func() tracestore.TraceQueryParams {
+  				p := baseExpectedParams()
+  				p.SearchDepth = 75
+  				return p
+  			}(),
+  			expectedStatus: http.StatusOK,
+  		},
+  		{
+  			name: "should use limit when both limit and num_traces are present",
+  			query: func() url.Values {
+  				q := baseQuery()
+  				q.Set(paramLimit, "50")
+  				q.Set(paramNumTraces, "75")
+  				return q
+  			}(),
+  			expectedParams: func() tracestore.TraceQueryParams {
+  				p := baseExpectedParams()
+  				p.SearchDepth = 50
+  				return p
+  			}(),
+  			expectedStatus: http.StatusOK,
+  		},
+  		{
+  			name: "should use limit=0 and ignore num_traces",
+  			query: func() url.Values {
+  				q := baseQuery()
+  				q.Set(paramLimit, "0")
+  				q.Set(paramNumTraces, "75")
+  				return q
+  			}(),
+  			expectedParams: func() tracestore.TraceQueryParams {
+  				p := baseExpectedParams()
+  				p.SearchDepth = 0
+  				return p
+  			}(),
+  			expectedStatus: http.StatusOK,
+  		},
+  		{
+  			name: "should return error for invalid num_traces",
+  			query: func() url.Values {
+  				q := baseQuery()
+  				q.Set(paramNumTraces, "invalid")
+  				return q
+  			}(),
+  			expectedStatus: http.StatusBadRequest,
+  			expectedError:  "malformed parameter query.num_traces",
+  		},
+  	}
+
+  	for _, tc := range testCases {
+  		t.Run(tc.name, func(t *testing.T) {
+  			gw := setupHTTPGatewayNoServer(t, "")
+  			if tc.expectedStatus == http.StatusOK {
+  				gw.reader.
+  					On("FindTraces", matchContext, tc.expectedParams).
+  					Return(iter.Seq2[[]ptrace.Traces, error](func(yield func([]ptrace.Traces, error) bool) {
+  						yield([]ptrace.Traces{makeTestTrace()}, nil)
+  					})).Once()
+  			}
+
+  			r, err := http.NewRequest(http.MethodGet, "/api/v3/traces?"+tc.query.Encode(), http.NoBody)
+  			require.NoError(t, err)
+  			w := httptest.NewRecorder()
+  			gw.router.ServeHTTP(w, r)
+
+  			assert.Equal(t, tc.expectedStatus, w.Code)
+  			if tc.expectedError != "" {
+  				assert.Contains(t, w.Body.String(), tc.expectedError)
+  			}
+  			gw.reader.AssertExpectations(t)
+  		})
+  	}
+  }
+  ```
+- Verification: "Run the Go tests for this package. All tests, including the new `limit=0` case, should pass, confirming both the test isolation and the correctness of the application logic."
+
+#### /home/hxrshxz/Desktop/Projects/jaeger/FIX_PLAN.md
 - Action: DELETE
-- Logic: "This is a temporary development artifact that should not be committed to the repository. First, unstage the file, then remove it. Execute the following commands: `git reset HEAD FIX_PLAN.md` followed by `rm FIX_PLAN.md`"
-- Verification: "Run `git status`. The file `FIX_PLAN.md` should not appear in the output."
-#### [FILE_PATH]
-local_review.md
-
-- Action: DELETE
-- Logic: "This is a temporary development artifact that should not be committed to the repository. First, unstage the file, then remove it. Execute the following commands: `git reset HEAD local_review.md` followed by `rm local_review.md`"
-- Verification: "Run `git status`. The file `local_review.md` should not appear in the output."
-#### [FILE_PATH]
-.gitignore
-
-- Action: REPLACE
-- Logic: "The file's changes are corrupted. Restore the file from git history, then add entries to ignore temporary development artifacts. Execute `git checkout HEAD -- .gitignore`, then append the following lines to the end of the file:
-```
-# Temporary development artifacts
-FIX_PLAN.md
-local_review.md
-```"
-- Verification: "Run `git diff .gitignore`. The output should only show the addition of the new lines for ignoring development artifacts."
+- Logic: "Remove the temporary development artifact `FIX_PLAN.md` from the project."
+- Verification: "Confirm the file has been deleted from the filesystem."
