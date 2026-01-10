@@ -32,16 +32,21 @@ def main():
             original_content = f.read()
 
         prompt = f"""
-        You are a Laborer agent. Apply the following fix instructions to the file content.
-        Output ONLY the complete updated file content. No explanations.
+        # ROLE: Laborer Agent
+        # TASK: Execute the Architect's Blueprint exactly.
         
-        INSTRUCTIONS:
+        ## BLUEPRINT INSTRUCTIONS:
         {instructions}
         
-        FILE PATH: {file_path}
+        ## TARGET FILE: {file_path}
         
-        ORIGINAL CONTENT:
+        ## ORIGINAL CONTENT:
         {original_content}
+        
+        ## MANDATORY RULES:
+        1. Follow instructions EXACTLY.
+        2. Maintain existing indentation and style.
+        3. Output ONLY the new file content. No markdown wrappers unless they are part of the code.
         """
 
         response = model.generate_content(prompt)

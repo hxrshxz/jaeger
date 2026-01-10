@@ -17,37 +17,47 @@ def main():
     pr = repo.get_pull(args.pr)
 
     # Get reviews and comments
-    reviews = pr.get_reviews()
     comments = []
+    
+    # Try local review first
+    if os.path.exists("local_review.md"):
+        with open("local_review.md", "r") as f:
+            comments.append(f"Local AI Review: {f.read()}")
+    
+    # Then get remote reviews from GitHub
+    reviews = pr.get_reviews()
     for review in reviews:
         if review.body:
-             comments.append(f"Review by {review.user.login}: {review.body}")
-        # Note: In a real implementation, you'd also fetch path-specific comments
+             comments.append(f"GitHub Review by {review.user.login}: {review.body}")
         
     if not comments:
-        print("No comments found.")
+        print("No comments to process.")
         return
 
     prompt = f"""
-    You are a Senior Architect. Analyze these PR review comments and create a FIX_PLAN.md.
-    
-    PR Context: {pr.title}
-    Comments:
-    {"/n".join(comments)}
-    
-    Format FIX_PLAN.md as:
+    # ROLE: Senior Architect / Mentor
+    # TASK: Validate code reviews and generate a Technical Blueprint for the Laborer.
+
+    ## INPUTS
+    - PR Context: {pr.title}
+    - Review Comments: {"/n".join(comments)}
+
+    ## OBJECTIVE
+    1. VALIDATE: Reject hallucinations or suggestions that break project patterns.
+    2. BLUEPRINT: For accepted suggestions, provide exact, step-by-step instructions.
+
+    ## OUTPUT FORMAT (MANDATORY)
     #### [FILE_PATH]
-    - Action: REPLACE/ADD/DELETE
-    - Logic: "Exact code change"
-    - Verification: "command"
+    - Action: [REPLACE/ADD/DELETE]
+    - Logic: "Detailed code snippet or instruction"
+    - Verification: "Instruction on how to test this change"
     """
 
     response = model.generate_content(prompt)
-    
     with open("FIX_PLAN.md", "w") as f:
         f.write(response.text)
     
-    print("Architect plan generated.")
+    print("FIX_PLAN.md generated.")
 
 if __name__ == "__main__":
     main()
