@@ -25,8 +25,8 @@ def main():
 
     print("Gemini CLI is reviewing your local changes...")
     try:
-        # Using gemini CLI for authentication-free processing
-        result = subprocess.run(["gemini", prompt], capture_output=True, text=True)
+        # Using gemini CLI with -o text for pure output
+        result = subprocess.run(["gemini", "-o", "text", prompt], capture_output=True, text=True)
         review_output = result.stdout
     except Exception as e:
         print(f"Error running gemini CLI: {e}")

@@ -1,7 +1,6 @@
 import os
 import argparse
 import subprocess
-from github import Github
 
 def main():
     parser = argparse.ArgumentParser()
@@ -15,6 +14,7 @@ def main():
     # Get remote reviews from GitHub if PR is provided
     if args.pr != 0:
         try:
+            from github import Github
             gh = Github(os.environ["GITHUB_TOKEN"])
             repo = gh.get_repo(args.repo)
             pr = repo.get_pull(args.pr)
@@ -57,7 +57,8 @@ def main():
 
     print("Gemini CLI is architecting the plan...")
     try:
-        result = subprocess.run(["gemini", prompt], capture_output=True, text=True)
+        # Using gemini CLI with -o text for pure output
+        result = subprocess.run(["gemini", "-o", "text", prompt], capture_output=True, text=True)
         blueprint = result.stdout
     except Exception as e:
         print(f"Error running gemini CLI: {e}")
