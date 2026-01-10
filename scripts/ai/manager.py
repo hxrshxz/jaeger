@@ -1,57 +1,69 @@
 import subprocess
-import time
 import os
+import time
 
 MAX_ITERATIONS = 5
 
 def run_script(script_name, args=[]):
-    try:
-        cmd = ["python", f"scripts/ai/{script_name}"] + args
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        print(result.stdout)
-        return result.returncode == 0
-    except Exception as e:
-        print(f"Error running {script_name}: {e}")
-        return False
+    script_path = os.path.join(os.path.dirname(__file__), script_name)
+    cmd = ["python3", script_path] + args
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    print(result.stdout)
+    if result.stderr:
+        print(f"Error in {script_name}: {result.stderr}")
+    return result.returncode
 
 def main():
-    print("🚀 Starting AI Automation Loop...")
+    print("🚀 Starting AI Minimal-Change Automation Loop...")
     
+    # Check if we are in a PR environment
+    pr_id = os.environ.get("PR_ID", "0")
+    repo = os.environ.get("GITHUB_REPOSITORY", "local/local")
+
     for i in range(MAX_ITERATIONS):
         print(f"\n--- Iteration {i+1} ---")
         
         # 1. Review
-        print("🔍 Step 1: Reviewing staged changes...")
+        print("🔍 Step 1: Reviewing staged changes (Minimalist Mode)...")
         run_script("reviewer.py")
         
         if os.path.exists("local_review.md"):
             with open("local_review.md", "r") as f:
                 review_content = f.read().upper()
                 if "LGTM" in review_content and len(review_content) < 50:
-                    print("✅ AI Reviewer says LGTM! Loop complete.")
+                    print("✅ AI Review: LGTM. Code meets project standards.")
                     break
-        
+        else:
+            print("No review generated. Staging might be empty.")
+            break
+
         # 2. Architect
-        print("🧠 Step 2: Architecting fix plan...")
-        # Passing a dummy PR/Repo since we are working locally on staged changes
-        run_script("architect.py", ["--pr", "0", "--repo", "local/local"])
+        print("🧠 Step 2: Architecting minimal fix plan (3-Phase Reasoning)...")
+        run_script("architect.py", ["--pr", pr_id, "--repo", repo])
         
         if not os.path.exists("FIX_PLAN.md"):
-            print("✅ Architect found no valid fixes. Loop complete.")
+            print("✅ Architect found no valid fixes or rejected suggestions. Loop complete.")
             break
 
         # 3. Laborer
-        print("👷 Step 3: Laborer applying fixes...")
+        print("👷 Step 3: Laborer applying minimal fixes...")
         run_script("laborer.py")
         
-        # 4. Clean up and Re-stage
+        # 4. Re-stage
         print("🔄 Re-staging changes for next iteration...")
-        subprocess.run(["git", "add", "-A"])
+        subprocess.run(["git", "add", "."], capture_output=True)
         
-        # Wait a bit to avoid hitting rate limits too fast
-        time.sleep(2)
-    else:
-        print("⚠️ Reached max iterations. Please check the code manually.")
+        # Cleanup
+        if os.path.exists("FIX_PLAN.md"):
+            os.remove("FIX_PLAN.md")
+        # Keep PR_DETAILS.md for the end
+
+    if os.path.exists("PR_DETAILS.md"):
+        print("\n📝 Proposed PR Details:")
+        with open("PR_DETAILS.md", "r") as f:
+            print(f.read())
+    
+    print("\n✅ AI Automation completed.")
 
 if __name__ == "__main__":
     main()

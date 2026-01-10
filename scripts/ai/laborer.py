@@ -10,70 +10,50 @@ def main():
     with open("FIX_PLAN.md", "r") as f:
         plan = f.read()
 
-    # Simple regex to extract file paths and instructions
-    # Format expected: #### [FILE_PATH] followed by instructions
-    sections = re.split(r'####\s+', plan)[1:]
+    # Split by file
+    file_sections = re.split(r'####\s+', plan)[1:]
     
-    for section in sections:
-        lines = section.strip().split('\n')
+    for section in file_sections:
+        lines = section.split('\n')
         if not lines:
             continue
             
-        # Clean up file path (strip backticks, brackets, spaces)
         file_path = lines[0].strip('`[] ')
-        instructions = '\n'.join(lines[1:])
         
-        if not file_path or not os.path.exists(file_path):
-            print(f"File not found or invalid: '{file_path}'")
+        if not os.path.exists(file_path):
+            print(f"File not found: {file_path}")
             continue
 
-        print(f"Laborer fixing: {file_path}")
+        print(f"Laborer applying minimal fixes for: {file_path}")
         
         with open(file_path, "r") as f:
-            original_content = f.read()
+            content = f.read()
 
-        prompt = f"""
-        # ROLE: Laborer Agent
-        # TASK: Execute the Architect's Blueprint exactly.
-        # OUTPUT: Return ONLY the new content of the file. DO NOT include any explanations, markdown markers, or chatter.
+        # Extract Search/Replace blocks
+        # Pattern: <<<< SEARCH ... ==== ... >>>> REPLACE
+        blocks = re.findall(r'<<<< SEARCH\n(.*?)\n====\n(.*?)\n>>>> REPLACE', section, re.DOTALL)
         
-        ## BLUEPRINT INSTRUCTIONS:
-        {instructions}
-        
-        ## TARGET FILE: {file_path}
-        
-        ## ORIGINAL CONTENT:
-        {original_content}
-        
-        ## MANDATORY RULES:
-        1. Follow instructions EXACTLY.
-        2. Maintain existing indentation and style.
-        3. Output ONLY the new file content. No markdown wrappers unless they are part of the code.
-        """
-
-        try:
-            print(f"Gemini CLI is fixing: {file_path}")
-            result = subprocess.run(["gemini", "-o", "text", prompt], capture_output=True, text=True)
-            new_content = result.stdout.strip()
-        except Exception as e:
-            print(f"Error running gemini CLI for {file_path}: {e}")
+        if not blocks:
+            print(f"No valid Search/Replace blocks found for {file_path}")
             continue
-        
-        # SAFETY CHECK: If the output is dangerously short or chatty, skip it
-        if "Sure" in new_content[:50] or "I will" in new_content[:50] or "Certainly" in new_content[:50]:
-             print(f"⚠️ Warning: Gemini output for {file_path} contains conversational markers. Skipping.")
-             continue
-        if len(new_content) < len(original_content) * 0.2 and len(original_content) > 100:
-             print(f"⚠️ Warning: Gemini output for {file_path} is too short compared to original. Skipping.")
-             continue
 
-        # Strip potential markdown code blocks
-        if new_content.startswith("```"):
-            new_content = re.sub(r'^```[a-z]*\n', '', new_content, flags=re.MULTILINE)
-            new_content = re.sub(r'\n```$', '', new_content, flags=re.MULTILINE)
+        for search, replace in blocks:
+            # Strip trailing/leading newlines that might cause mismatch
+            search_stripped = search.strip('\n')
+            
+            # Look for exact match first
+            if search in content:
+                print(f"  Applying Search/Replace block...")
+                content = content.replace(search, replace)
+            elif search_stripped in content:
+                 print(f"  Applying Search/Replace block (fuzzy newline)...")
+                 content = content.replace(search_stripped, replace.strip('\n'))
+            else:
+                print(f"  ⚠️ Could not find search block in {file_path}. Skipping.")
+                print(f"  Looking for: {search[:100]}...")
 
         with open(file_path, "w") as f:
-            f.write(new_content)
+            f.write(content)
         
         print(f"Successfully updated {file_path}")
 

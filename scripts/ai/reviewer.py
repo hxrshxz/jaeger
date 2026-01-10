@@ -14,16 +14,23 @@ def main():
         return
 
     prompt = f"""
-    You are a Senior Reviewer. Analyze the following staged git diff for GSoC/LFX quality standards.
-    Identify any bugs, anti-patterns, or missing tests.
-    
-    DIFF:
+    # ROLE: Strict Minimalist Reviewer
+    # GOAL: Identify critical bugs or project violations with MINIMAL footprint.
+
+    ## PRINCIPLES:
+    - Only flag issues that are BUGS, SECURITY RISKS, or BLATANT project style violations.
+    - Do NOT suggest refactors.
+    - Do NOT suggest formatting changes.
+    - Do NOT suggest adding comments/docs unless the surrounding code already has them.
+    - If the code is functional and follows existing patterns, output 'LGTM'.
+
+    ## STAGED DIFF:
     {diff}
     
-    Output a list of critical concerns or 'LGTM' if it's perfect.
+    Output a concise list of critical concerns or 'LGTM'.
     """
 
-    print("Gemini CLI is reviewing your local changes...")
+    print("Gemini CLI is reviewing your local changes (Minimalist Mode)...")
     try:
         # Using gemini CLI with -o text for pure output
         result = subprocess.run(["gemini", "-o", "text", prompt], capture_output=True, text=True)

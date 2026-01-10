@@ -32,32 +32,32 @@ import (
 )
 
 const (
-	paramTraceID        = "trace_id" // get trace by ID
-	paramStartTime      = "start_time"
-	paramEndTime        = "end_time"
-	paramRawTraces      = "raw_traces"
-	paramServiceName    = "query.service_name" // find traces
-	paramOperationName  = "query.operation_name"
-	paramTimeMin        = "query.start_time_min"
-	paramTimeMax        = "query.start_time_max"
-	paramNumTraces      = "query.num_traces"
-	paramDurationMin    = "query.duration_min"
-	paramDurationMax    = "query.duration_max"
+	paramTraceID = "trace_id" // get trace by ID
+	paramStartTime = "start_time"
+	paramEndTime = "end_time"
+	paramRawTraces = "raw_traces"
+	paramServiceName = "query.service_name" // find traces
+	paramOperationName = "query.operation_name"
+	paramTimeMin = "query.start_time_min"
+	paramTimeMax = "query.start_time_max"
+	paramNumTraces = "query.num_traces"
+	paramDurationMin = "query.duration_min"
+	paramDurationMax = "query.duration_max"
 	paramQueryRawTraces = "query.raw_traces"
-	paramAttributes     = "query.attributes"
-	paramLimit          = "query.limit"
+	paramAttributes = "query.attributes"
+	paramLimit = "query.limit"
 
-	routeGetTrace      = "/api/v3/traces/{" + paramTraceID + "}"
-	routeFindTraces    = "/api/v3/traces"
-	routeGetServices   = "/api/v3/services"
+	routeGetTrace = "/api/v3/traces/{" + paramTraceID + "}"
+	routeFindTraces = "/api/v3/traces"
+	routeGetServices = "/api/v3/services"
 	routeGetOperations = "/api/v3/operations"
 )
 
 // HTTPGateway exposes APIv3 HTTP endpoints.
 type HTTPGateway struct {
 	QueryService *querysvc.QueryService
-	Logger       *zap.Logger
-	Tracer       trace.TracerProvider
+	Logger *zap.Logger
+	Tracer trace.TracerProvider
 }
 
 // RegisterRoutes registers HTTP endpoints for APIv3 into provided mux.
@@ -99,7 +99,7 @@ func (h *HTTPGateway) tryHandleError(w http.ResponseWriter, err error, statusCod
 		Error: &api_v3.GRPCGatewayError_GRPCGatewayErrorDetails{
 			//nolint:gosec // G115
 			HttpCode: int32(statusCode),
-			Message:  err.Error(),
+			Message: err.Error(),
 		},
 	}
 	resp, _ := json.Marshal(&errorResponse)
@@ -115,15 +115,15 @@ func (h *HTTPGateway) tryParamError(w http.ResponseWriter, err error, paramName 
 	return h.tryHandleError(w, fmt.Errorf("malformed parameter %s: %w", paramName, err), http.StatusBadRequest)
 }
 
-func (h *HTTPGateway) returnTrace(td ptrace.Traces, w http.ResponseWriter) {
+func (h *HTTPGateway) returnTrace(td ptrace.Traces, w http.ResponseWriter, r *http.Request) {
 	tracesData := jptrace.TracesData(td)
 	response := &api_v3.GRPCGatewayWrapper{
 		Result: &tracesData,
 	}
-	h.marshalResponse(response, w)
+	h.marshalResponse(response, w, r)
 }
 
-func (h *HTTPGateway) returnTraces(traces []ptrace.Traces, err error, w http.ResponseWriter) {
+func (h *HTTPGateway) returnTraces(traces []ptrace.Traces, err error, w http.ResponseWriter, r *http.Request) {
 	// TODO how do we distinguish internal error from bad parameters?
 	if h.tryHandleError(w, err, http.StatusInternalServerError) {
 		return
@@ -132,7 +132,7 @@ func (h *HTTPGateway) returnTraces(traces []ptrace.Traces, err error, w http.Res
 		errorResponse := api_v3.GRPCGatewayError{
 			Error: &api_v3.GRPCGatewayError_GRPCGatewayErrorDetails{
 				HttpCode: http.StatusNotFound,
-				Message:  "No traces found",
+				Message: "No traces found",
 			},
 		}
 		resp, _ := json.Marshal(&errorResponse)
@@ -149,10 +149,11 @@ func (h *HTTPGateway) returnTraces(traces []ptrace.Traces, err error, w http.Res
 			resource.CopyTo(combinedTrace.ResourceSpans().AppendEmpty())
 		}
 	}
-	h.returnTrace(combinedTrace, w)
+	h.returnTrace(combinedTrace, w, r)
 }
 
-func (*HTTPGateway) marshalResponse(response proto.Message, w http.ResponseWriter) {
+func (*HTTPGateway) marshalResponse(response proto.Message, w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
 	_ = new(jsonpb.Marshaler).Marshal(w, response)
 }
 
@@ -196,7 +197,7 @@ func (h *HTTPGateway) getTrace(w http.ResponseWriter, r *http.Request) {
 	}
 	getTracesIter := h.QueryService.GetTraces(r.Context(), request)
 	trc, err := jiter.FlattenWithErrors(getTracesIter)
-	h.returnTraces(trc, err, w)
+	h.returnTraces(trc, err, w, r)
 }
 
 func (h *HTTPGateway) findTraces(w http.ResponseWriter, r *http.Request) {
@@ -207,15 +208,15 @@ func (h *HTTPGateway) findTraces(w http.ResponseWriter, r *http.Request) {
 
 	findTracesIter := h.QueryService.FindTraces(r.Context(), *queryParams)
 	traces, err := jiter.FlattenWithErrors(findTracesIter)
-	h.returnTraces(traces, err, w)
+	h.returnTraces(traces, err, w, r)
 }
 
 func (h *HTTPGateway) parseFindTracesQuery(q url.Values, w http.ResponseWriter) (*querysvc.TraceQueryParams, bool) {
 	queryParams := &querysvc.TraceQueryParams{
 		TraceQueryParams: tracestore.TraceQueryParams{
-			ServiceName:   q.Get(paramServiceName),
+			ServiceName: q.Get(paramServiceName),
 			OperationName: q.Get(paramOperationName),
-			Attributes:    pcommon.NewMap(), // most curiously not supported by grpc-gateway
+			Attributes: pcommon.NewMap(), // most curiously not supported by grpc-gateway
 		},
 	}
 
@@ -273,23 +274,19 @@ func (h *HTTPGateway) parseFindTracesQuery(q url.Values, w http.ResponseWriter) 
 	}
 
 	// The 'limit' parameter is preferred over the deprecated 'num_traces'.
-	if limitStr := q.Get(paramLimit); limitStr != "" {
+	if _, ok := q[paramLimit]; ok {
+		limitStr := q.Get(paramLimit)
 		limit, err := strconv.Atoi(limitStr)
 		if h.tryParamError(w, err, paramLimit) {
 			return nil, true
 		}
 		queryParams.SearchDepth = limit
-	}
-
-	// Fallback to 'num_traces' if 'limit' was not provided or parsed to 0.
-	if queryParams.SearchDepth == 0 {
-		if numTracesStr := q.Get(paramNumTraces); numTracesStr != "" {
-			if numTraces, err := strconv.Atoi(numTracesStr); err == nil {
-				queryParams.SearchDepth = numTraces
-			} else if h.tryParamError(w, err, paramNumTraces) {
-				return nil, true
-			}
+	} else if numTracesStr := q.Get(paramNumTraces); numTracesStr != "" {
+		numTraces, err := strconv.Atoi(numTracesStr)
+		if h.tryParamError(w, err, paramNumTraces) {
+			return nil, true
 		}
+		queryParams.SearchDepth = numTraces
 	}
 
 	return queryParams, false
@@ -302,14 +299,14 @@ func (h *HTTPGateway) getServices(w http.ResponseWriter, r *http.Request) {
 	}
 	h.marshalResponse(&api_v3.GetServicesResponse{
 		Services: services,
-	}, w)
+	}, w, r)
 }
 
 func (h *HTTPGateway) getOperations(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	queryParams := tracestore.OperationQueryParams{
 		ServiceName: query.Get("service"),
-		SpanKind:    query.Get("span_kind"),
+		SpanKind: query.Get("span_kind"),
 	}
 	operations, err := h.QueryService.GetOperations(r.Context(), queryParams)
 	if h.tryHandleError(w, err, http.StatusInternalServerError) {
@@ -318,11 +315,11 @@ func (h *HTTPGateway) getOperations(w http.ResponseWriter, r *http.Request) {
 	apiOperations := make([]*api_v3.Operation, len(operations))
 	for i := range operations {
 		apiOperations[i] = &api_v3.Operation{
-			Name:     operations[i].Name,
+			Name: operations[i].Name,
 			SpanKind: operations[i].SpanKind,
 		}
 	}
-	h.marshalResponse(&api_v3.GetOperationsResponse{Operations: apiOperations}, w)
+	h.marshalResponse(&api_v3.GetOperationsResponse{Operations: apiOperations}, w, r)
 }
 
 func spanNameHandler(spanName string, handler http.Handler) http.Handler {
